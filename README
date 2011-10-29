@@ -1,0 +1,33 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=3792
+
+Simple Buffer Manager similar to Mini Buffer Explorer and others. The
+interface and code is kept as simple as possible. Several ideas are borrowed
+from Mini Buffer Explorer but all code is original.
+
+GitHub Home: https://github.com/LStinson/TagmaBufMgr
+
+Features:
+
+Smaller code base and as little code run on updates as possible. For example
+the modification check that is performed after the |CursorHold| interval tries
+to bail out as fast as possible if there is no change to the modification
+state.
+
+As much information as possible is cached for each buffer. This allows some
+updates to perform very few actions. Unfortunately there are rare cases where
+this causes stale data to display in the Buffer Window. Using the Manager
+Refresh or switching to the Manager Window clears this data.
+
+Addition to the Right-Click PopUp menu. Menu items are added to toggle the
+Manager Window, Refresh the Manager Window and switch to each buffer.
+
+Tool tips for the buffers listed in the Manager Window.
+The Tool Tips display the following lines:
+	* Buffer name and number. Also flags the current buffer.
+	* Full file name, truncated with &#039~&#039 for home where possible.
+	* The file type and format.
+	* Notes if the buffer is Modified or Readonly
+
+Preserves the window history. This allows the command <C-W>p to work as
+expected.
+
