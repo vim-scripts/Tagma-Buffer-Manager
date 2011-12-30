@@ -32,6 +32,9 @@ call s:SetDefault('g:TagmaBufMgrBufferNumbers', 1)
 " Close the manager window after selecting a buffer.
 call s:SetDefault('g:TagmaBufMgrCloseSelect',   0)
 
+" Show the Manager Window as the last line without a status line.
+call s:SetDefault('g:TagmaBufMgrLastLine',      0)
+
 " Closing the last window (besides the Buffer Manager) quits Vim.
 " Otherwise a new window will be created.
 call s:SetDefault('g:TagmaBufMgrLastWindow',    0)
@@ -263,7 +266,7 @@ function! s:BufCacheEntry(mode, buf_nr)
             if l:buf_name == '' 
                 return 0
             endif
-            let l:cache['name'] = l:buf_name
+            let l:cache['name'] = substitute(l:buf_name, '\s', '_', 'g')
             let l:cache['noname'] = (l:buf_name == 'No Name' ? 1 : 0)
         endif
     endif
@@ -445,8 +448,19 @@ endfunction
 function! s:CloseMgr()
     " See if the Manager Window is visible.
     let l:mgr_winnr = bufwinnr(g:TagmaBufMgrBufNr)
-    if l:mgr_winnr != -1
+    if l:mgr_winnr == -1
+        return
+    endif
+
+    " If not already in the Manager Window save the current and previous
+    " windows then switch to the Manager Window.
+    if winnr() != l:mgr_winnr
+        let l:prev_win = [winnr('#'), winnr()]
         execute l:mgr_winnr . 'wincmd w'
+        wincmd c
+        execute l:prev_win[0] . 'wincmd w'
+        execute l:prev_win[1] . 'wincmd w'
+    else
         wincmd c
     endif
 endfunction
@@ -458,7 +472,7 @@ function! s:CreateMgrWin()
     " Set the orientation and create the Manager Window.
     let l:cmd_prefix = ''
     let g:TagmaBufMgrOrient = 'H'
-    if g:TagmaBufMgrLocation == 'B'
+    if g:TagmaBufMgrLocation == 'B' || g:TagmaBufMgrLastLine
         let l:cmd_prefix = 'botright'
     elseif g:TagmaBufMgrLocation == 'T'
         let l:cmd_prefix = 'topleft'
@@ -480,6 +494,14 @@ function! s:CreateMgrWin()
 
     " Change the status line.
     let &l:stl='Tagma Buffer Manager - See `:help TagmaBufMgr` for more information.'
+
+    " Save and set &laststatus.
+    if g:TagmaBufMgrLastLine && &laststatus != 0
+        let g:TagmaBufMgrLastStatusSave = &laststatus
+        set laststatus=0
+        " Restore &laststatus when the buffer is unloaded.
+        autocmd BufUnload <buffer> let &laststatus=g:TagmaBufMgrLastStatusSave
+    endif
 
     " This gets lost for some reason.
     setlocal nobuflisted
@@ -534,8 +556,8 @@ function! s:DisplayList()
     endif
 
     " Generate the list from the cache.
-    let l:buf_list = values(map(copy(g:TagmaBufMgrBufCache),
-                               \ "g:TagmaBufMgrBufCache[v:key]['entry']"))
+    let l:buf_list = map(sort(keys(g:TagmaBufMgrBufCache), "s:SortNumeric"),
+                        \ "g:TagmaBufMgrBufCache[v:val]['entry']")
 
     " Save the " register and cursor position.
     let l:save_quote = @"
@@ -606,7 +628,7 @@ endfunction
 " Initialize the Manager Buffer and the auto refresh if not set.
 function! s:InitMgrBuffer()
     " Buffer Settings.
-    setlocal bufhidden=hide
+    setlocal bufhidden=delete
     setlocal buftype=nofile
     setlocal foldcolumn=0
     setlocal formatoptions=
@@ -635,6 +657,9 @@ function! s:InitMgrBuffer()
     " Set the buffer keymaps.
     call s:InitMgrKeys()
 
+    " Set the buffer commands.
+    call s:InitMgrcmds()
+
     " Balloon/Tool Tips settings.
     if has('balloon_eval')
         setlocal balloonexpr=BufMgrToolTips()
@@ -643,6 +668,29 @@ function! s:InitMgrBuffer()
 
     " Note that the initialization has been performed.
     let b:TagmaBufMgrInit = 1
+endfunction
+
+" Function: s:InitMgrcmds()         -- Initialize Manager Commands {{{1
+" Replaces normal commands so they act on the previous window instead of the
+" Manager Window.
+function! s:InitMgrcmds()
+    " Don't switch buffers in the Manager Window.
+    cnoreabbrev <buffer> bn                     wincmd<Space>p<CR>:bn
+    cnoreabbrev <buffer> bnext                  wincmd<Space>p<CR>:bnext
+    cnoreabbrev <buffer> bp                     wincmd<Space>p<CR>:bp
+    cnoreabbrev <buffer> bprev                  wincmd<Space>p<CR>:bprev
+
+    " Don't open files in the Manager Window.
+    cnoreabbrev <buffer> e                      wincmd<Space>p<CR>:e
+    cnoreabbrev <buffer> edit                   wincmd<Space>p<CR>:edit
+    cnoreabbrev <buffer> ene                    wincmd<Space>p<CR>:ene
+    cnoreabbrev <buffer> enew                   wincmd<Space>p<CR>:enew
+    cnoreabbrev <buffer> fin                    wincmd<Space>p<CR>:fin
+    cnoreabbrev <buffer> find                   wincmd<Space>p<CR>:find
+
+    " Don't write files in the Manager Window.
+    cnoreabbrev <buffer> w                      wincmd<Space>p<CR>:w
+    cnoreabbrev <buffer> write                  wincmd<Space>p<CR>:write
 endfunction
 
 " Function: s:InitMgrKeys()         -- Initialize Manager Keys Maps {{{1
@@ -669,7 +717,7 @@ function! s:InitMgrKeys()
     call s:MapBufKeys(['R', 'r'],               ":call <SID>BufCacheRefresh()")
 
     " Help.
-    call s:MapBufKeys(['?', 'H'],               ":call <SID>ManagerHelp()")
+    call s:MapBufKeys(['?', 'H'],               ":call <SID>DisplayHelp()")
 
     " Manager Buffer Specific Menu.
     if has('menu')
@@ -727,6 +775,7 @@ function! s:InitMgrRefresh()
     autocmd BufLeave        *   call s:BufCacheUpdate('L', bufnr('%'))
     autocmd BufDelete       *   call s:BufCacheUpdate('d', expand('<abuf>'))
     autocmd BufUnload       *   call s:BufCacheUpdate('u', expand('<abuf>'))
+    autocmd BufHidden       *   call s:BufCacheUpdate('u', expand('<afile>'))
     autocmd VimResized      *   call s:DisplayList()
 
     " Check for modification changes.
@@ -816,7 +865,7 @@ function! s:PopUpMenu()
     silent! unmenu PopUp.SwitchTo
 
     " Add the buffer list to the PopUp Menu.
-    for l:cur_buf in sort(keys(g:TagmaBufMgrBufCache))
+    for l:cur_buf in sort(keys(g:TagmaBufMgrBufCache), "s:SortNumeric")
         let l:buf_name = g:TagmaBufMgrBufCache[l:cur_buf]['name']
         execute 'nnoremenu <silent> PopUp.SwitchTo.' .
                     \ escape(l:buf_name . ' (' . l:cur_buf . ')', '. \') .
@@ -834,6 +883,13 @@ function! s:ShowPopUp()
         echo 'Menus are not supported in this version of VIM.'
         echohl NONE
     endif
+endfunction
+
+" Function: s:SortNumeric(i1, i2)   -- Numeric sort function. {{{1
+function! s:SortNumeric(i1, i2)
+    let l:i1 = a:i1 + 0
+    let l:i2 = a:i2 + 0
+    return l:i1 == l:i2 ? 0 : l:i1 > l:i2 ? 1 : -1
 endfunction
 
 " Function: s:SwitchBuf(...)        -- Switch Buffers {{{1
