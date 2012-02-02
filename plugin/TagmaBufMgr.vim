@@ -492,7 +492,15 @@ function! s:CreateMgrWin()
             let l:cmd_prefix = 'botright'
         endif
     endif
-    execute 'silent! ' . l:cmd_prefix . ' split ' . g:TagmaBufMgrBufName
+
+    " Save the eventignore setting then disable all events.
+    " Events were causing strange behavior at times.
+    " In investigated how Tagmbar works and found this is how it avoided the
+    " same issues.
+    let l:eventignore_save = &eventignore
+    set eventignore=all
+    execute 'silent! keepalt ' . l:cmd_prefix . ' split ' . g:TagmaBufMgrBufName
+    let &eventignore = l:eventignore_save
 
     " Lock the window size if not floating.
     if g:TagmaBufMgrLocation != 'F'
@@ -783,7 +791,7 @@ function! s:InitMgrRefresh()
     autocmd BufLeave        *   call s:BufCacheUpdate('L', bufnr('%'))
     autocmd BufDelete       *   call s:BufCacheUpdate('d', expand('<abuf>'))
     autocmd BufUnload       *   call s:BufCacheUpdate('u', expand('<abuf>'))
-    autocmd BufHidden       *   call s:BufCacheUpdate('u', expand('<afile>'))
+    autocmd BufHidden       *   call s:BufCacheUpdate('u', expand('<abuf>'))
     autocmd VimResized      *   call s:DisplayList()
 
     " Check for modification changes.
